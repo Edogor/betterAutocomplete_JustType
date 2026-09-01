@@ -1,0 +1,16 @@
+.vscode
+node_modules
+out-test
+test
+coverage
+artifacts
+src
+tsconfig*.json
+esbuild.mjs
+eslint.config.mjs
+.vscode-test.mjs
+!dist/**
+GrundIdee.md
+PROJEKTPLAN.md
+benchmarks
+.gitignore

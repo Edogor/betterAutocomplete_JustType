@@ -1,7 +1,7 @@
 # JustType – lebender Projektplan
 
-> Stand: 1. September 2026  
-> Phase: Phase-1-Completion-Kern implementiert und lokal validiert; Phase 2 folgt  
+> Stand: 2. September 2026
+> Phase: Phase-1-Completion-Kern und automatisierte Inferenz-Baseline implementiert; Phase 2 folgt nach dem editorseitigen UX-Gate
 > Rohnotizen: [GrundIdee.md](./GrundIdee.md)
 
 Dieses Dokument ist der geordnete, fortlaufend aktualisierte Plan. Die ursprünglichen Notizen bleiben unverändert; neue Ideen werden hier an der passenden Stelle ergänzt.
@@ -158,7 +158,7 @@ Alles läuft zunächst in einer Extension. `llama.cpp` ist der einzige separate 
 | `ExplorationQueue` | Hält höchstens zwei niedrig priorisierte H2/H3-Alternativen, die nur im Leerlauf entstehen. |
 | `SidecardProvider` | Erzeugt später wenige deduplizierte Hinweise aus einem stabilen Snapshot. |
 
-Die stabile VS-Code-API ist request/response-orientiert. Deshalb wächst Ghost Text im MVP bei Editor-Ereignissen oder partieller Annahme weiter, nicht als tokenweise Animation im Stillstand. Eine echte tokenweise Live-Animation würde eine experimentelle API oder einen eigenen Editor erfordern und gehört nicht in den technischen Spike.
+Die stabile VS-Code-API ist request/response-orientiert und besitzt keinen eigenen Push-Stream für Extension-Provider. JustType kann `/infill`-SSE-Deltas dennoch gesammelt und gedrosselt als wachsenden Ghost Text anzeigen, indem es den vorhandenen Inline-Provider erneut auslöst. Das bleibt ein kleiner VS-Code-UX-Gate: Die Darstellung wird bei Änderungen an der unterstützten VS-Code-Version manuell geprüft. Der normale Modus bleibt ein kurzer, gepufferter Vorschlag; der optionale Live-Modus startet am Zeilenende nach kurzer Pause, zeigt bis zu 512 Tokens ohne Acht-Zeilen-Limit und beendet die Ausgabe bei EOS, Token- oder Zeitlimit.
 
 Für FIM werden vollständige Zeilen vor dem Cursor als `input_prefix`, der rechte Cursorrest plus Folgezeilen als `input_suffix` und der linke Teil der aktuellen Zeile als `/infill`-`prompt` gesendet. Das hält den häufig geänderten Teil am Prompt-Ende und verbessert die Cache-Wiederverwendung. Das Kontextbudget reserviert immer Platz für `n_predict`; feste Zeilenzahlen allein reichen nicht.
 
@@ -355,6 +355,17 @@ Damit ist ein 1.5B-Modell auf der CPU ein vernünftiger Start. Die tatsächliche
 - LRU und minimale Messwerte.
 
 **Fertig, wenn:** passendes Weitertippen keinen Request erzeugt, ein Tipp-Burst höchstens einen Request auslöst und nie eine veraltete Completion erscheint.
+
+### Phase 1.5 – Messbarkeit absichern
+
+- versionierte, synthetische `/infill`-Szenarien automatisiert ausführen;
+- je Szenario Warm-up, Latenz p50/p90, Tokenrate, KV-Cache-Daten, Fehlerrate und eine grobe Erwartungsprüfung erfassen;
+- strukturierte, datensparsame Extension-Logs und flüchtige Session-Metriken nutzen;
+- Ergebnisse als Git-ignorierte JSON-Artefakte ablegen; keine Prompts, Dateipfade oder Modellantworten persistieren.
+
+**Fertig, wenn:** ein lokaler Modell-/Konfigurationsvergleich mit einem Befehl reproduzierbar ist und die Erweiterung bei Problemen genug aggregierte Laufzeitdaten liefert. Das misst bewusst noch nicht Editor-Flackern oder tatsächliche Akzeptanzqualität.
+
+**Stand 2. September 2026:** Der Qwen2.5-Coder-1.5B-Q8_0-CPU-Baseline-Lauf ist dokumentiert. Die fünf echten Editor-Sequenzen bleiben ein separates UX-Gate; die kritischen Zustandsübergänge sind inzwischen deterministisch getestet.
 
 ### Phase 2 – Fortlaufender Buffer und Ziel
 

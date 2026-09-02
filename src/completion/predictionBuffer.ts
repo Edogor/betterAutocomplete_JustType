@@ -12,19 +12,45 @@ export type ConsumeResult = 'matched' | 'mismatch' | 'invalid';
 
 export class PredictionBuffer {
   private consumed = 0;
+  private streamOpen = false;
+  private readonly unbounded: boolean;
 
-  public constructor(public readonly origin: RequestStamp, private readonly text: string) {}
+  public constructor(public readonly origin: RequestStamp, private text: string, streamOpen = false) {
+    this.streamOpen = streamOpen;
+    this.unbounded = streamOpen;
+  }
 
   public remaining(): string {
     return this.text.slice(this.consumed);
+  }
+
+  public fullText(): string {
+    return this.text;
+  }
+
+  public append(text: string): void {
+    this.text += text;
+  }
+
+  public finishStream(): void {
+    this.streamOpen = false;
+  }
+
+  public isStreamOpen(): boolean {
+    return this.streamOpen;
+  }
+
+  public isUnbounded(): boolean {
+    return this.unbounded;
   }
 
   public expectedOffset(): number {
     return this.origin.cursorOffset + this.consumed;
   }
 
-  public visibleText(maxLines: number): string {
+  public visibleText(maxLines?: number): string {
     const remaining = this.remaining();
+    if (maxLines === undefined) return remaining;
     const lines = remaining.split(/\r?\n/);
     return lines.slice(0, maxLines).join('\n');
   }
@@ -43,13 +69,18 @@ export class PredictionBuffer {
 
   public nextWord(): string {
     const remaining = this.remaining();
-    const match = remaining.match(/^(\s*)([A-Za-z_$][\w$]*|\S)/u);
+    if (remaining.startsWith('\n')) return '\n';
+    const match = remaining.match(/^([ \t]*)([A-Za-z_$][\w$]*|[^\s])/u);
     return match ? match[0] : '';
   }
 
   public nextLine(): string {
     const remaining = this.remaining();
-    const index = remaining.indexOf('\n');
+    if (!remaining.startsWith('\n')) {
+      const index = remaining.indexOf('\n');
+      return index === -1 ? remaining : remaining.slice(0, index + 1);
+    }
+    const index = remaining.indexOf('\n', 1);
     return index === -1 ? remaining : remaining.slice(0, index + 1);
   }
 }

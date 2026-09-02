@@ -7,3 +7,4 @@ artifacts/
 *.vsix
 models/
 llama.cpp/
+benchmarks/results/

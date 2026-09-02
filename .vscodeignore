@@ -4,6 +4,7 @@ out-test
 test
 coverage
 artifacts
+models
 src
 tsconfig*.json
 esbuild.mjs

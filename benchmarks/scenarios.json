@@ -1,0 +1,26 @@
+[
+  {
+    "id": "normalize-host",
+    "description": "FIM at the end of a Python return statement.",
+    "inputPrefix": "def normalize_host(host: str) -> str:\n    ",
+    "prompt": "return ",
+    "inputSuffix": "\n",
+    "expectedAnyOf": ["host.lower()", "host.strip()", "host.casefold()", "host.replace(", "host.removeprefix("]
+  },
+  {
+    "id": "function-body",
+    "description": "Completion at the start of a Python function body.",
+    "inputPrefix": "# local network scanner\n\ndef scan_hosts(hosts: list[str]) -> list[str]:\n",
+    "prompt": "    ",
+    "inputSuffix": "",
+    "expectedAnyOf": ["return", "for ", "results"]
+  },
+  {
+    "id": "right-context",
+    "description": "FIM with existing code to the right of the cursor.",
+    "inputPrefix": "def clamp_port(port: int) -> int:\n    ",
+    "prompt": "return max(1, min(",
+    "inputSuffix": ", 65535))\n",
+    "expectedAnyOf": ["port", "int(port)"]
+  }
+]

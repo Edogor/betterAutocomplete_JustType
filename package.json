@@ -2,7 +2,7 @@
   "name": "justtype",
   "displayName": "JustType",
   "description": "A local predictive coding companion that keeps the programmer in control.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "justtype-local",
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "local" },
@@ -14,6 +14,7 @@
   "contributes": {
     "commands": [
       { "command": "justType.toggle", "title": "JustType: Toggle" },
+      { "command": "justType.toggleLiveMode", "title": "JustType: Toggle Live Mode" },
       { "command": "justType.trigger", "title": "JustType: Trigger Completion" },
       { "command": "justType.acceptNextWord", "title": "JustType: Accept Next Word" },
       { "command": "justType.acceptNextLine", "title": "JustType: Accept Next Line" },
@@ -28,14 +29,14 @@
       "properties": {
         "justType.enabled": { "type": "boolean", "default": true, "description": "Enable JustType inline completions." },
         "justType.triggerMode": { "type": "string", "enum": ["automatic", "manual"], "default": "automatic", "description": "Request completions automatically after typing or only when explicitly triggered." },
+        "justType.completionMode": { "type": "string", "enum": ["standard", "live"], "default": "standard", "description": "Use short buffered completions or long live-streamed continuations at the end of a line." },
         "justType.llamaCpp.endpoint": { "type": "string", "default": "http://127.0.0.1:8012", "description": "URL of a manually started llama.cpp server." }
       }
     },
     "keybindings": [
-      { "key": "tab", "command": "editor.action.inlineSuggest.commit", "when": "inlineSuggestionVisible && editorTextFocus" },
-      { "key": "ctrl+right", "command": "justType.acceptNextWord", "when": "inlineSuggestionVisible && editorTextFocus" },
-      { "key": "shift+tab", "command": "justType.acceptNextLine", "when": "inlineSuggestionVisible && editorTextFocus" },
-      { "key": "escape", "command": "justType.dismiss", "when": "inlineSuggestionVisible && editorTextFocus" }
+      { "key": "alt+right", "command": "justType.acceptNextWord", "when": "justType.predictionReady && editorTextFocus" },
+      { "key": "shift+tab", "command": "justType.acceptNextLine", "when": "justType.predictionReady && editorTextFocus" },
+      { "key": "escape", "command": "justType.dismiss", "when": "(justType.predictionReady || justType.generationActive) && editorTextFocus" }
     ]
   },
   "scripts": {
@@ -44,11 +45,12 @@
     "build": "npm run check-types && node esbuild.mjs",
     "build:test": "tsc --project tsconfig.test.json",
     "test:unit": "npm run build:test && c8 --reporter=text --reporter=lcov mocha \"out-test/test/unit/**/*.test.js\"",
-    "test:extension": "npm run build:test && vscode-test",
+    "test:extension": "npm run build && npm run build:test && vscode-test",
     "smoke:llama": "node scripts/llama-smoke.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
     "check": "npm run check-types && npm run lint && npm run test:unit",
     "vscode:prepublish": "node esbuild.mjs --production",
-    "package": "npm run check && npm run test:extension && node esbuild.mjs --production && mkdir -p artifacts && vsce package --no-dependencies --out artifacts/justtype-0.0.1.vsix"
+    "package": "npm run check && npm run test:extension && node esbuild.mjs --production && mkdir -p artifacts && vsce package --no-dependencies --out artifacts/justtype-0.0.2.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

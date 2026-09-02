@@ -386,11 +386,20 @@ export class CompletionSessionController {
   private completionMode(document: vscode.TextDocument, cursorOffset: number): CompletionMode { return vscode.workspace.getConfiguration('justType').get<CompletionMode>('completionMode', 'standard') === 'live' && this.isAtLineEnd(document, cursorOffset) ? 'live' : 'standard'; }
   private isAtLineEnd(document: vscode.TextDocument, cursorOffset: number): boolean { const next = document.getText().charAt(cursorOffset); return next === '' || next === '\n' || next === '\r'; }
   private isSingleCursor(document: vscode.TextDocument, position: vscode.Position): boolean { const active = vscode.window.activeTextEditor; return active?.document === document && active.selections.length === 1 && active.selection.active.isEqual(position); }
+  private endsAtDisplayBoundary(text: string): boolean { return /[\s.,;:!?()[\]{}]/u.test(text.at(-1) ?? ''); }
   private debounceDelay(context: vscode.InlineCompletionContext, mode: CompletionMode): number { if (context.triggerKind !== vscode.InlineCompletionTriggerKind.Automatic) return 0; const debounce = mode === 'live' ? this.policy.liveDebounceMs : this.nextDebounceMs; return Math.max(0, debounce - (Date.now() - this.latestEditAt)); }
   private refreshForBuffer(buffer: PredictionBuffer): void { if (buffer.isStreamOpen()) this.queueLiveRefresh(); else this.triggerNativeRefresh(); }
   private queueLiveRefresh(): void {
+    const buffer = this.session.buffer;
+    if (!buffer || !buffer.isStreamOpen()) return;
     const elapsed = Date.now() - this.lastLiveRefreshAt;
-    if (this.lastLiveRefreshAt === 0 || elapsed >= this.policy.liveRefreshMs) { this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(true); return; }
+    if (this.lastLiveRefreshAt === 0 || this.endsAtDisplayBoundary(buffer.fullText())) {
+      if (this.liveRefreshTimer) clearTimeout(this.liveRefreshTimer);
+      this.liveRefreshTimer = undefined;
+      this.lastLiveRefreshAt = Date.now();
+      this.triggerNativeRefresh(true);
+      return;
+    }
     if (this.liveRefreshTimer) return;
     this.liveRefreshTimer = setTimeout(() => { this.liveRefreshTimer = undefined; this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(true); }, this.policy.liveRefreshMs - elapsed);
   }

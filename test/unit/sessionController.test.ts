@@ -270,6 +270,54 @@ describe('CompletionSessionController', () => {
     finish();
   });
 
+  it('batches live updates until a display boundary instead of refreshing for every token', async () => {
+    const document = new MockTextDocument('def scan():\n');
+    const position = new MockPosition(1, 0);
+    vscodeMock.window.activeTextEditor = createMockEditor(document, position);
+    setConfiguration('justType.completionMode', 'live');
+    const client = new StubInferenceClient();
+    const controller = new CompletionSessionController(
+      client,
+      { ...policy, liveRefreshMs: 50 },
+      'http://127.0.0.1:8012',
+      new SessionMetrics(),
+      new MockOutputChannel() as unknown as vscode.OutputChannel,
+      new MockStatusBarItem() as unknown as vscode.StatusBarItem
+    );
+    let releaseSecondDelta!: () => void;
+    let releaseBoundary!: () => void;
+    let finish!: () => void;
+    client.enqueueStream(async (onDelta) => {
+      onDelta('first');
+      await new Promise<void>((resolve) => { releaseSecondDelta = resolve; });
+      onDelta(' second');
+      await new Promise<void>((resolve) => { releaseBoundary = resolve; });
+      onDelta(' ');
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { text: '', durationMs: 10, stopReason: 'limit' };
+    });
+
+    controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()));
+    await waitFor(() => client.streamRequests.length === 1);
+    await waitFor(() => vscodeMock.commands.executedCommands.includes('editor.action.inlineSuggest.trigger'));
+    controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()));
+    vscodeMock.commands.executedCommands.length = 0;
+
+    releaseSecondDelta();
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual(vscodeMock.commands.executedCommands, []);
+
+    releaseBoundary();
+    await waitFor(() => vscodeMock.commands.executedCommands.includes('editor.action.inlineSuggest.trigger'));
+    assert.deepEqual(vscodeMock.commands.executedCommands, [
+      'editor.action.inlineSuggest.hide',
+      'editor.action.inlineSuggest.trigger'
+    ]);
+    assert.equal(inlineText(controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()))), 'first second ');
+
+    finish();
+  });
+
   it('cancels a live stream before its first token and suppresses an immediate automatic restart', async () => {
     const document = new MockTextDocument('def scan():\n');
     const position = new MockPosition(1, 0);

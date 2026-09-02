@@ -64,7 +64,7 @@ export const DEFAULT_POLICY: CompletionPolicy = {
   liveRequestTimeoutMs: 45_000,
   liveServerPredictMs: 30_000,
   liveDebounceMs: 100,
-  liveRefreshMs: 50
+  liveRefreshMs: 150
 };
 
 export type MetricsSnapshot = {

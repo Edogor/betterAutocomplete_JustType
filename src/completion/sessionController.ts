@@ -29,6 +29,10 @@ export class CompletionSessionController {
   private nextStreamId = 0;
   private liveRefreshTimer?: ReturnType<typeof setTimeout>;
   private lastLiveRefreshAt = 0;
+  private nativeRefreshRunning = false;
+  private nativeRefreshQueued = false;
+  private nativeRefreshReplace = false;
+  private nativeRefreshEpoch = 0;
   private dismissedKey?: string;
 
   public constructor(
@@ -223,7 +227,7 @@ export class CompletionSessionController {
     this.cache.set(scheduled.cacheKey, text);
     this.metrics.recordOfferLatency(Date.now() - scheduled.startedAt);
     logEvent(this.log, 'completion.stream_finished', { durationMs: result.durationMs, promptTokens: result.promptTokens, predictedTokens: result.predictedTokens, cachedTokens: result.cachedTokens, stopReason: result.stopReason });
-    if (buffer.isEmpty()) this.completeBuffer(); else this.triggerNativeRefresh();
+    if (buffer.isEmpty()) this.completeBuffer(); else this.triggerNativeRefresh(true);
   }
 
   private handleRequestError(scheduled: ScheduledRequest, controller: AbortController, error: unknown): void {
@@ -235,7 +239,7 @@ export class CompletionSessionController {
       this.metrics.increment('errors');
       this.status.text = '$(warning) JustType: stream interrupted';
       logEvent(this.log, 'completion.stream_interrupted', { epoch: scheduled.context.stamp.epoch, error: error instanceof Error ? error.name : 'unknown' });
-      this.triggerNativeRefresh();
+      this.triggerNativeRefresh(true);
       return;
     }
     if (scheduled.mode === 'live' && buffer?.isStreamOpen()) {
@@ -335,6 +339,7 @@ export class CompletionSessionController {
     this.lastOffer = undefined;
     this.offers.clear();
     this.cancelLiveRefresh();
+    this.cancelNativeRefresh();
     this.cancelScheduled();
     this.abortInFlight();
     this.setPredictionReady(false);
@@ -385,14 +390,50 @@ export class CompletionSessionController {
   private refreshForBuffer(buffer: PredictionBuffer): void { if (buffer.isStreamOpen()) this.queueLiveRefresh(); else this.triggerNativeRefresh(); }
   private queueLiveRefresh(): void {
     const elapsed = Date.now() - this.lastLiveRefreshAt;
-    if (this.lastLiveRefreshAt === 0 || elapsed >= this.policy.liveRefreshMs) { this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(); return; }
+    if (this.lastLiveRefreshAt === 0 || elapsed >= this.policy.liveRefreshMs) { this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(true); return; }
     if (this.liveRefreshTimer) return;
-    this.liveRefreshTimer = setTimeout(() => { this.liveRefreshTimer = undefined; this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(); }, this.policy.liveRefreshMs - elapsed);
+    this.liveRefreshTimer = setTimeout(() => { this.liveRefreshTimer = undefined; this.lastLiveRefreshAt = Date.now(); this.triggerNativeRefresh(true); }, this.policy.liveRefreshMs - elapsed);
   }
   private cancelLiveRefresh(): void { if (this.liveRefreshTimer) clearTimeout(this.liveRefreshTimer); this.liveRefreshTimer = undefined; this.lastLiveRefreshAt = 0; }
+  private cancelNativeRefresh(): void {
+    this.nativeRefreshEpoch += 1;
+    this.nativeRefreshQueued = false;
+    this.nativeRefreshReplace = false;
+  }
   private setPredictionReady(value: boolean): void { void vscode.commands.executeCommand('setContext', 'justType.predictionReady', value); }
   private setGenerationActive(value: boolean): void { void vscode.commands.executeCommand('setContext', 'justType.generationActive', value); }
-  private triggerNativeRefresh(): void { queueMicrotask(() => void vscode.commands.executeCommand('editor.action.inlineSuggest.trigger')); }
+  /**
+   * Inline completion providers have no change event. Re-triggering an already
+   * visible suggestion without hiding it first makes VS Code retain each stream
+   * snapshot as a cycleable alternative. For a live stream we instead replace
+   * the visible snapshot with the newest cumulative buffer.
+   */
+  private triggerNativeRefresh(replaceVisible = false): void {
+    this.nativeRefreshQueued = true;
+    this.nativeRefreshReplace ||= replaceVisible;
+    if (this.nativeRefreshRunning) return;
+    this.nativeRefreshRunning = true;
+    const epoch = this.nativeRefreshEpoch;
+    queueMicrotask(() => void this.flushNativeRefresh(epoch));
+  }
+
+  private async flushNativeRefresh(epoch: number): Promise<void> {
+    try {
+      while (this.nativeRefreshQueued && epoch === this.nativeRefreshEpoch) {
+        const replaceVisible = this.nativeRefreshReplace;
+        this.nativeRefreshQueued = false;
+        this.nativeRefreshReplace = false;
+        if (replaceVisible && this.session.suggestionOffered) {
+          await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+        }
+        if (epoch !== this.nativeRefreshEpoch) return;
+        await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
+      }
+    } finally {
+      this.nativeRefreshRunning = false;
+      if (this.nativeRefreshQueued) this.triggerNativeRefresh();
+    }
+  }
 }
 
 function isStructuralChange(event: vscode.TextDocumentChangeEvent): boolean { return event.contentChanges.some((change) => change.rangeLength > 0 || change.text.length > 1 || change.text.includes('\n')); }

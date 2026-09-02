@@ -229,6 +229,47 @@ describe('CompletionSessionController', () => {
     assert.equal(metrics.snapshot().suggestions, 1);
   });
 
+  it('replaces an already visible live snapshot instead of adding it as an inline alternative', async () => {
+    const document = new MockTextDocument('def scan():\n');
+    const position = new MockPosition(1, 0);
+    vscodeMock.window.activeTextEditor = createMockEditor(document, position);
+    setConfiguration('justType.completionMode', 'live');
+    const client = new StubInferenceClient();
+    const controller = new CompletionSessionController(
+      client,
+      policy,
+      'http://127.0.0.1:8012',
+      new SessionMetrics(),
+      new MockOutputChannel() as unknown as vscode.OutputChannel,
+      new MockStatusBarItem() as unknown as vscode.StatusBarItem
+    );
+    let releaseSecondDelta!: () => void;
+    let finish!: () => void;
+    client.enqueueStream(async (onDelta) => {
+      onDelta('first ');
+      await new Promise<void>((resolve) => { releaseSecondDelta = resolve; });
+      onDelta('second ');
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { text: '', durationMs: 10, stopReason: 'limit' };
+    });
+
+    controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()));
+    await waitFor(() => client.streamRequests.length === 1);
+    await waitFor(() => vscodeMock.commands.executedCommands.includes('editor.action.inlineSuggest.trigger'));
+    assert.equal(inlineText(controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()))), 'first ');
+    vscodeMock.commands.executedCommands.length = 0;
+
+    releaseSecondDelta();
+    await waitFor(() => vscodeMock.commands.executedCommands.includes('editor.action.inlineSuggest.trigger'));
+    assert.deepEqual(vscodeMock.commands.executedCommands, [
+      'editor.action.inlineSuggest.hide',
+      'editor.action.inlineSuggest.trigger'
+    ]);
+    assert.equal(inlineText(controller.provide(asTextDocument(document), asPosition(position), manualContext(), asCancellationToken(new MockCancellationToken()))), 'first second ');
+
+    finish();
+  });
+
   it('cancels a live stream before its first token and suppresses an immediate automatic restart', async () => {
     const document = new MockTextDocument('def scan():\n');
     const position = new MockPosition(1, 0);
